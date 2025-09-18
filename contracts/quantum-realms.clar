@@ -475,3 +475,114 @@
     (ok true)
   )
 )
+
+;; BITCOIN REWARD DISTRIBUTION SYSTEM
+(define-public (distribute-bitcoin-rewards)
+  (let 
+    (
+      (top-players (get-top-players))
+    )
+    (asserts! (is-protocol-admin tx-sender) ERR-NOT-AUTHORIZED)
+    
+    (try! 
+      (fold distribute-quantum-reward 
+        (filter is-valid-reward-candidate top-players) 
+        (ok true)
+      )
+    )
+    
+    (ok true)
+  )
+)
+
+(define-private (is-valid-reward-candidate (player principal))
+  (match (map-get? global-leaderboard { player: player })
+    stats (and 
+            (> (get score stats) u0)
+            (is-valid-principal player)
+          )
+    false
+  )
+)
+
+(define-private (distribute-quantum-reward 
+  (player principal) 
+  (previous-result (response bool uint))
+)
+  (match (map-get? global-leaderboard { player: player })
+    player-stats 
+      (let 
+        (
+          (reward-amount (calculate-quantum-reward (get score player-stats)))
+        )
+        (if (and (is-ok previous-result) (> reward-amount u0))
+          (begin
+            (map-set global-leaderboard 
+              { player: player }
+              (merge player-stats 
+                { total-rewards: (+ (get total-rewards player-stats) reward-amount) }
+              )
+            )
+            (ok true)
+          )
+          previous-result
+        )
+      )
+    previous-result
+  )
+)
+
+(define-private (calculate-quantum-reward (score uint))
+  (if (<= score u100)
+    u0
+    (if (<= score u10000)
+      (* score u10)
+      u0
+    )
+  )
+)
+
+;; HELPER FUNCTIONS FOR EXPERIENCE & LEVELING
+
+;; Helper function to calculate required experience for next level
+(define-private (calculate-level-up-experience (current-level uint))
+  (* BASE-EXPERIENCE-REQUIRED current-level)
+)
+
+;; Helper function to validate experience points
+(define-private (validate-experience-gain
+    (current-experience uint)
+    (gained-experience uint)
+    (current-level uint)
+  )
+  (let
+    (
+      (max-allowed-gain (calculate-level-up-experience current-level))
+      (new-total-experience (+ current-experience gained-experience))
+    )
+    (and
+      (<= gained-experience max-allowed-gain)
+      (<= new-total-experience (* MAX-EXPERIENCE-PER-LEVEL current-level))
+      (< current-experience (* MAX-EXPERIENCE-PER-LEVEL current-level))
+    )
+  )
+)
+
+;; Helper function to check if level up is warranted
+(define-private (can-level-up
+    (current-experience uint)
+    (gained-experience uint)
+    (current-level uint)
+  )
+  (let
+    (
+      (new-total-experience (+ current-experience gained-experience))
+      (required-experience (calculate-level-up-experience current-level))
+    )
+    (>= new-total-experience required-experience)
+  )
+)
+
+;; PROTOCOL INITIALIZATION
+;; Set contract deployer as initial protocol administrator
+(map-set protocol-admin-whitelist tx-sender true)
